@@ -46,8 +46,8 @@ jobs:
           7z a -r ..\..\..\..\background_screenshot_app.zip *
         
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: background_screenshot_app.zip
-          retention-days: 7
+          retention-days: 7   
