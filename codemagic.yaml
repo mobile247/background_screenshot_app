@@ -1,0 +1,74 @@
+workflows:
+  windows-workflow:
+    name: Windows Desktop Screenshot App Workflow
+    instance_type: windows_x2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      vars:
+        FLUTTER_VERSION: "3.29.3"
+        FLUTTER_BUILD_NUMBER: "001"
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - $FLUTTER_ROOT/.pub-cache
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          echo "Installing dependencies..."
+          flutter pub get
+          
+      - name: Enable Windows desktop
+        script: |
+          echo "Enabling Windows desktop..."
+          flutter config --enable-windows-desktop
+          
+      - name: Flutter analyze
+        script: |
+          echo "Analyzing Flutter code..."
+          flutter analyze
+        # Set to true if you want to continue the build even if analysis fails
+        ignore_failure: true
+        
+      - name: Run tests
+        script: |
+          echo "Running tests if any..."
+          if [ -d "test" ] && [ "$(ls -A test)" ]; then
+            flutter test
+          else
+            echo "No tests found, skipping..."
+          fi
+        ignore_failure: true
+        
+      - name: Build Windows app
+        script: |
+          echo "Building Windows Desktop app..."
+          flutter build windows \
+            --release \
+            --build-name=$FLUTTER_VERSION \
+            --build-number=$FLUTTER_BUILD_NUMBER
+            
+      - name: Package Windows app
+        script: |
+          echo "Packaging Windows app..."
+          cd build/windows/runner/Release
+          mkdir -p ../../../artifacts
+          7z a -r ../../../artifacts/background_screenshot_app.zip *
+    artifacts:
+      - build/artifacts/background_screenshot_app.zip
+      - build/windows/runner/Release/*.exe
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com
+        notify:
+          success: true
+          failure: true
