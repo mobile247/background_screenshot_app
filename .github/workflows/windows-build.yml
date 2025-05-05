@@ -38,16 +38,44 @@ jobs:
         continue-on-error: true
         
       - name: Build Windows app
-        run: flutter build windows --release
+        run: |
+          echo "Building Windows app..."
+          flutter build windows --release --verbose
+        
+      - name: Check build output directory
+        run: |
+          echo "Checking build output directory..."
+          if (Test-Path -Path "build\windows\runner\Release") {
+            echo "Build directory exists!"
+            Get-ChildItem "build\windows\runner\Release"
+          } else {
+            echo "Build directory does not exist!"
+            echo "Checking alternative paths..."
+            if (Test-Path -Path "build\windows") {
+              Get-ChildItem "build\windows" -Recurse | Select-Object -First 20
+            }
+          }
+        continue-on-error: true
         
       - name: Package Windows app
         run: |
-          cd build\windows\runner\Release
-          7z a -r ..\..\..\..\background_screenshot_app.zip *
+          echo "Packaging Windows app..."
+          if (Test-Path -Path "build\windows\runner\Release") {
+            cd build\windows\runner\Release
+            7z a -r ..\..\..\..\background_screenshot_app.zip *
+            echo "Packaging completed!"
+          } elseif (Test-Path -Path "build\windows\x64\runner\Release") {
+            cd build\windows\x64\runner\Release
+            7z a -r ..\..\..\..\..\background_screenshot_app.zip *
+            echo "Packaging completed from x64 path!"
+          } else {
+            echo "ERROR: Could not find build output directory!"
+            exit 1
+          }
         
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: background_screenshot_app.zip
-          retention-days: 7   
+          retention-days: 7
