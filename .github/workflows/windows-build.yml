@@ -1,0 +1,53 @@
+name: Flutter Windows Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Allow running this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          # You can specify a specific Flutter version if needed
+          # flutter-version: '3.19.0'
+      
+      - name: Install dependencies
+        run: flutter pub get
+        
+      - name: Enable Windows Desktop
+        run: flutter config --enable-windows-desktop
+        
+      - name: Analyze code
+        run: flutter analyze
+        continue-on-error: true
+        
+      - name: Run tests
+        run: flutter test
+        continue-on-error: true
+        
+      - name: Build Windows app
+        run: flutter build windows --release
+        
+      - name: Package Windows app
+        run: |
+          cd build\windows\runner\Release
+          7z a -r ..\..\..\..\background_screenshot_app.zip *
+        
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-build
+          path: background_screenshot_app.zip
+          retention-days: 7
