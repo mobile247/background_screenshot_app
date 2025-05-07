@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:system_tray/system_tray.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:intl/intl.dart';
 
@@ -10,12 +9,14 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
 
+  // Configure window options
   WindowOptions windowOptions = const WindowOptions(
-    size: Size(400, 300),
+    size: Size(400, 480),
     center: true,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.hidden,
+    minimumSize: Size(400, 480),
   );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -32,42 +33,42 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Background Screenshot App',
+      title: 'Screenshot App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const BackgroundScreenshotApp(),
+      home: const ScreenshotApp(),
     );
   }
 }
 
-class BackgroundScreenshotApp extends StatefulWidget {
-  const BackgroundScreenshotApp({Key? key}) : super(key: key);
+class ScreenshotApp extends StatefulWidget {
+  const ScreenshotApp({Key? key}) : super(key: key);
 
   @override
-  _BackgroundScreenshotAppState createState() =>
-      _BackgroundScreenshotAppState();
+  _ScreenshotAppState createState() => _ScreenshotAppState();
 }
 
-class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
-    with WindowListener {
-  final SystemTray _systemTray = SystemTray();
-  final AppWindow _appWindow = AppWindow();
-
+class _ScreenshotAppState extends State<ScreenshotApp> with WindowListener {
   Timer? _screenshotTimer;
   bool _isRunning = false;
   int _screenshotInterval = 10; // in minutes
   int _screenshotCount = 0;
   String _savePath = '';
+  String _errorMessage = '';
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
-    _initSystemTray();
     _initSavePath();
+
+    // Add delay to see if initialization is working
+    Future.delayed(Duration(seconds: 2), () {
+      print("App initialized successfully");
+    });
   }
 
   @override
@@ -79,79 +80,62 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
 
   @override
   void onWindowClose() async {
-    // Hide the window instead of closing it
-    await windowManager.hide();
+    bool _isPreventClose = await windowManager.isPreventClose();
+    if (_isPreventClose && _isRunning) {
+      showDialog(
+        context: context,
+        builder: (_) {
+          return AlertDialog(
+            title: Text('Confirm'),
+            content: Text(
+                'Screenshots are still running. Are you sure you want to exit?'),
+            actions: [
+              TextButton(
+                child: Text('No'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+              TextButton(
+                child: Text('Yes'),
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await windowManager.destroy();
+                },
+              ),
+            ],
+          );
+        },
+      );
+    } else {
+      await windowManager.destroy();
+    }
+  }
+
+  @override
+  void onWindowFocus() {
+    setState(() {});
   }
 
   Future<void> _initSavePath() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final screenshotsDir = Directory('${directory.path}/Screenshots');
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final screenshotsDir = Directory('${directory.path}/Screenshots');
 
-    if (!await screenshotsDir.exists()) {
-      await screenshotsDir.create(recursive: true);
-    }
-
-    setState(() {
-      _savePath = screenshotsDir.path;
-    });
-  }
-
-  Future<void> _initSystemTray() async {
-    String iconPath;
-
-    if (Platform.isWindows) {
-      iconPath = 'assets/app_icon.ico';
-    } else if (Platform.isMacOS) {
-      iconPath = 'assets/app_icon.png';
-    } else {
-      iconPath = 'assets/app_icon.png';
-    }
-
-    await _systemTray.initSystemTray(
-      title: "Background Screenshot",
-      iconPath: iconPath,
-    );
-
-    final Menu menu = Menu();
-    await menu.buildFrom([
-      MenuItemLabel(
-          label: 'Show App',
-          onClicked: (_) async {
-            await windowManager.show();
-          }),
-      MenuItemLabel(
-          label: 'Start Screenshots',
-          onClicked: (_) {
-            _startScreenshotTimer();
-          }),
-      MenuItemLabel(
-          label: 'Stop Screenshots',
-          onClicked: (_) {
-            _stopScreenshotTimer();
-          }),
-      MenuItemLabel(
-          label: 'Open Screenshots Folder',
-          onClicked: (_) {
-            _openScreenshotsFolder();
-          }),
-      MenuSeparator(),
-      MenuItemLabel(
-          label: 'Exit',
-          onClicked: (_) async {
-            await _systemTray.destroy();
-            exit(0);
-          }),
-    ]);
-
-    await _systemTray.setContextMenu(menu);
-
-    _systemTray.registerSystemTrayEventHandler((eventName) {
-      if (eventName == kSystemTrayEventClick) {
-        _appWindow.show();
-      } else if (eventName == kSystemTrayEventRightClick) {
-        _systemTray.popUpContextMenu();
+      if (!await screenshotsDir.exists()) {
+        await screenshotsDir.create(recursive: true);
       }
-    });
+
+      setState(() {
+        _savePath = screenshotsDir.path;
+      });
+      print("Save path initialized: $_savePath");
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Error initializing save path: $e";
+      });
+      print(_errorMessage);
+    }
   }
 
   void _startScreenshotTimer() {
@@ -167,6 +151,8 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
     // Set up timer to take screenshots at intervals
     _screenshotTimer = Timer.periodic(
         Duration(minutes: _screenshotInterval), (_) => _takeScreenshot());
+
+    print("Screenshot timer started");
   }
 
   void _stopScreenshotTimer() {
@@ -177,6 +163,8 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
       setState(() {
         _isRunning = false;
       });
+
+      print("Screenshot timer stopped");
     }
   }
 
@@ -188,14 +176,60 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
 
       // Use native screenshot method for desktop platforms
       if (Platform.isWindows) {
-        // Using just {PRTSC} without the % (Alt) modifier to capture all monitors
-        await Process.run('powershell', [
+        // Use a direct bitmap approach instead of SendKeys for Windows
+        // This avoids the Snipping Tool popup in Windows 11
+        final result = await Process.run('powershell', [
           '-command',
-          'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\"{PRTSC}\"); Start-Sleep -Milliseconds 100; \$img = [System.Windows.Forms.Clipboard]::GetImage(); if (\$img -ne \$null) { \$img.Save(\"$filePath\"); }'
+          '''
+          Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+          
+          function Screenshot([Drawing.Rectangle]\$bounds, \$path) {
+            \$bmp = New-Object Drawing.Bitmap \$bounds.width, \$bounds.height
+            \$graphics = [Drawing.Graphics]::FromImage(\$bmp)
+            \$graphics.CopyFromScreen(\$bounds.Location, [Drawing.Point]::Empty, \$bounds.size)
+            \$bmp.Save(\$path, [System.Drawing.Imaging.ImageFormat]::Png)
+            \$graphics.Dispose()
+            \$bmp.Dispose()
+          }
+          
+          # Get the entire screen bounds
+          \$totalWidth = 0
+          \$totalHeight = 0
+          
+          # Get all screen dimensions
+          \$screens = [System.Windows.Forms.Screen]::AllScreens
+          
+          foreach (\$screen in \$screens) {
+            \$right = \$screen.Bounds.Right
+            \$bottom = \$screen.Bounds.Bottom
+            
+            if (\$right -gt \$totalWidth) {
+              \$totalWidth = \$right
+            }
+            
+            if (\$bottom -gt \$totalHeight) {
+              \$totalHeight = \$bottom
+            }
+          }
+          
+          # Create bounds for the entire virtual screen
+          \$bounds = [Drawing.Rectangle]::FromLTRB(0, 0, \$totalWidth, \$totalHeight)
+          
+          # Take the screenshot
+          Screenshot \$bounds "$filePath"
+          '''
         ]);
+
+        print("powershell exit code: ${result.exitCode}");
+        print("powershell stdout: ${result.stdout}");
+        print("powershell stderr: ${result.stderr}");
       } else if (Platform.isMacOS) {
-        // The -x flag captures all screens on macOS
-        await Process.run('screencapture', ['-x', filePath]);
+        print("Taking screenshot on macOS to: $filePath");
+        // Use additional flags for macOS screencapture
+        final result = await Process.run('screencapture', ['-xCS', filePath]);
+        print("screencapture exit code: ${result.exitCode}");
+        print("screencapture stdout: ${result.stdout}");
+        print("screencapture stderr: ${result.stderr}");
       }
 
       setState(() {
@@ -204,7 +238,10 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
 
       print('Screenshot saved to: $filePath');
     } catch (e) {
-      print('Error taking screenshot: $e');
+      setState(() {
+        _errorMessage = "Error taking screenshot: $e";
+      });
+      print(_errorMessage);
     }
   }
 
@@ -213,10 +250,17 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
       if (Platform.isWindows) {
         await Process.run('explorer', [_savePath]);
       } else if (Platform.isMacOS) {
-        await Process.run('open', [_savePath]);
+        print("Opening folder: $_savePath");
+        final result = await Process.run('open', [_savePath]);
+        print("open exit code: ${result.exitCode}");
+        print("open stdout: ${result.stdout}");
+        print("open stderr: ${result.stderr}");
       }
     } catch (e) {
-      print('Error opening screenshots folder: $e');
+      setState(() {
+        _errorMessage = "Error opening folder: $e";
+      });
+      print(_errorMessage);
     }
   }
 
@@ -231,16 +275,25 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
     }
   }
 
+  Future<void> _minimizeWindow() async {
+    await windowManager.minimize();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Background Screenshot App'),
+        title: const Text('Screenshot App'),
         actions: [
           IconButton(
             icon: const Icon(Icons.folder_open),
             onPressed: _openScreenshotsFolder,
             tooltip: 'Open Screenshots Folder',
+          ),
+          IconButton(
+            icon: const Icon(Icons.minimize),
+            onPressed: _minimizeWindow,
+            tooltip: 'Minimize Window',
           ),
         ],
       ),
@@ -249,49 +302,120 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Status: ${_isRunning ? 'Running' : 'Stopped'}',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _isRunning ? Colors.green : Colors.red,
+            // Error message display
+            if (_errorMessage.isNotEmpty)
+              Card(
+                color: Colors.red[100],
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Error:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red[900],
+                        ),
+                      ),
+                      Text(_errorMessage),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Status section
+            Card(
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Status: ${_isRunning ? 'Running' : 'Stopped'}',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _isRunning ? Colors.green : Colors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Screenshots Taken: $_screenshotCount'),
+                    const SizedBox(height: 8),
+                    Text('Save Location: $_savePath'),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 20),
-            Text('Screenshot Interval (minutes):'),
-            Slider(
-              value: _screenshotInterval.toDouble(),
-              min: 1,
-              max: 60,
-              divisions: 59,
-              label: _screenshotInterval.toString(),
-              onChanged: (value) => _updateInterval(value.toInt()),
+
+            const SizedBox(height: 16),
+
+            // Settings section
+            Card(
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Settings',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Screenshot Interval (minutes): $_screenshotInterval'),
+                    Slider(
+                      value: _screenshotInterval.toDouble(),
+                      min: 1,
+                      max: 60,
+                      divisions: 59,
+                      label: _screenshotInterval.toString(),
+                      onChanged: (value) => _updateInterval(value.toInt()),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 20),
-            Text('Screenshots Taken: $_screenshotCount'),
-            const SizedBox(height: 20),
-            Text('Save Location: $_savePath'),
-            const SizedBox(height: 30),
+
+            const Spacer(),
+
+            // Control buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 ElevatedButton.icon(
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Start'),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(110, 45),
+                    backgroundColor: Colors.green,
+                  ),
                   onPressed: _isRunning ? null : _startScreenshotTimer,
                 ),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.stop),
                   label: const Text('Stop'),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(110, 45),
+                    backgroundColor: Colors.red,
+                  ),
                   onPressed: _isRunning ? _stopScreenshotTimer : null,
                 ),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('Take Now'),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(110, 45),
+                  ),
                   onPressed: _takeScreenshot,
                 ),
               ],
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
