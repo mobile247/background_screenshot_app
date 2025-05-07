@@ -188,11 +188,13 @@ class _BackgroundScreenshotAppState extends State<BackgroundScreenshotApp>
 
       // Use native screenshot method for desktop platforms
       if (Platform.isWindows) {
+        // Using just {PRTSC} without the % (Alt) modifier to capture all monitors
         await Process.run('powershell', [
           '-command',
-          'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\"%{PRTSC}\"); Start-Sleep -Milliseconds 100; \$img = [System.Windows.Forms.Clipboard]::GetImage(); if (\$img -ne \$null) { \$img.Save(\"$filePath\"); }'
+          'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\"{PRTSC}\"); Start-Sleep -Milliseconds 100; \$img = [System.Windows.Forms.Clipboard]::GetImage(); if (\$img -ne \$null) { \$img.Save(\"$filePath\"); }'
         ]);
       } else if (Platform.isMacOS) {
+        // The -x flag captures all screens on macOS
         await Process.run('screencapture', ['-x', filePath]);
       }
 
