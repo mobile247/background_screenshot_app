@@ -178,9 +178,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> with WindowListener {
       if (Platform.isWindows) {
         // Use a direct Windows API approach through PowerShell
         // This avoids the Snipping Tool popup in Windows 11
-        final result = await Process.run('powershell', [
-          '-command',
-          '''
+        final psScript = '''
           Add-Type -AssemblyName System.Windows.Forms,System.Drawing
           
           # Get screen scaling factor
@@ -214,36 +212,37 @@ class _ScreenshotAppState extends State<ScreenshotApp> with WindowListener {
               return [DPI]::GetScalingFactor()
           }
           
-          $scalingFactor = Get-ScreenScaling
+          \$scalingFactor = Get-ScreenScaling
           
           # Get all virtual screen metrics
-          $totalBounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          \$totalBounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
           
           # Create bitmap with the size of the virtual screen
-          $bitmap = New-Object System.Drawing.Bitmap ($totalBounds.Width), ($totalBounds.Height)
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          \$bitmap = New-Object System.Drawing.Bitmap (\$totalBounds.Width), (\$totalBounds.Height)
+          \$graphics = [System.Drawing.Graphics]::FromImage(\$bitmap)
           
           # Set high quality settings
-          $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-          $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-          $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+          \$graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          \$graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+          \$graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
           
           # Copy screen to bitmap
-          $graphics.CopyFromScreen($totalBounds.Left, $totalBounds.Top, 0, 0, $bitmap.Size)
+          \$graphics.CopyFromScreen(\$totalBounds.Left, \$totalBounds.Top, 0, 0, \$bitmap.Size)
           
           # Save with maximum quality
-          $encoderParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
-          $encoderParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 100)
-          $jpegCodecInfo = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/png' }
+          \$encoderParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
+          \$encoderParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 100)
+          \$jpegCodecInfo = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { \$_.MimeType -eq 'image/png' }
           
           # Save to file
-          $bitmap.Save("$filePath", $jpegCodecInfo, $encoderParams)
+          \$bitmap.Save("$filePath", \$jpegCodecInfo, \$encoderParams)
           
           # Clean up resources
-          $graphics.Dispose()
-          $bitmap.Dispose()
-          '''
-        ]);
+          \$graphics.Dispose()
+          \$bitmap.Dispose()
+        ''';
+
+        final result = await Process.run('powershell', ['-command', psScript]);
 
         print("powershell exit code: ${result.exitCode}");
         print("powershell stdout: ${result.stdout}");
