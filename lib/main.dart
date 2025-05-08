@@ -176,47 +176,72 @@ class _ScreenshotAppState extends State<ScreenshotApp> with WindowListener {
 
       // Use native screenshot method for desktop platforms
       if (Platform.isWindows) {
-        // Use a direct bitmap approach instead of SendKeys for Windows
+        // Use a direct Windows API approach through PowerShell
         // This avoids the Snipping Tool popup in Windows 11
         final result = await Process.run('powershell', [
           '-command',
           '''
           Add-Type -AssemblyName System.Windows.Forms,System.Drawing
           
-          function Screenshot([Drawing.Rectangle]\$bounds, \$path) {
-            \$bmp = New-Object Drawing.Bitmap \$bounds.width, \$bounds.height
-            \$graphics = [Drawing.Graphics]::FromImage(\$bmp)
-            \$graphics.CopyFromScreen(\$bounds.Location, [Drawing.Point]::Empty, \$bounds.size)
-            \$bmp.Save(\$path, [System.Drawing.Imaging.ImageFormat]::Png)
-            \$graphics.Dispose()
-            \$bmp.Dispose()
+          # Get screen scaling factor
+          function Get-ScreenScaling {
+              Add-Type @"
+              using System;
+              using System.Runtime.InteropServices;
+          
+              public class DPI {
+                  [DllImport("user32.dll")]
+                  public static extern IntPtr GetDC(IntPtr hwnd);
+          
+                  [DllImport("gdi32.dll")]
+                  public static extern int GetDeviceCaps(IntPtr hdc, int nIndex);
+          
+                  [DllImport("user32.dll")]
+                  public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+          
+                  public const int LOGPIXELSX = 88;
+                  public const int LOGPIXELSY = 90;
+          
+                  public static float GetScalingFactor() {
+                      IntPtr hdc = GetDC(IntPtr.Zero);
+                      int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
+                      ReleaseDC(IntPtr.Zero, hdc);
+                      return dpiX / 96.0f;
+                  }
+              }
+          "@
+          
+              return [DPI]::GetScalingFactor()
           }
           
-          # Get the entire screen bounds
-          \$totalWidth = 0
-          \$totalHeight = 0
+          $scalingFactor = Get-ScreenScaling
           
-          # Get all screen dimensions
-          \$screens = [System.Windows.Forms.Screen]::AllScreens
+          # Get all virtual screen metrics
+          $totalBounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
           
-          foreach (\$screen in \$screens) {
-            \$right = \$screen.Bounds.Right
-            \$bottom = \$screen.Bounds.Bottom
-            
-            if (\$right -gt \$totalWidth) {
-              \$totalWidth = \$right
-            }
-            
-            if (\$bottom -gt \$totalHeight) {
-              \$totalHeight = \$bottom
-            }
-          }
+          # Create bitmap with the size of the virtual screen
+          $bitmap = New-Object System.Drawing.Bitmap ($totalBounds.Width), ($totalBounds.Height)
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
           
-          # Create bounds for the entire virtual screen
-          \$bounds = [Drawing.Rectangle]::FromLTRB(0, 0, \$totalWidth, \$totalHeight)
+          # Set high quality settings
+          $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+          $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
           
-          # Take the screenshot
-          Screenshot \$bounds "$filePath"
+          # Copy screen to bitmap
+          $graphics.CopyFromScreen($totalBounds.Left, $totalBounds.Top, 0, 0, $bitmap.Size)
+          
+          # Save with maximum quality
+          $encoderParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
+          $encoderParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 100)
+          $jpegCodecInfo = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/png' }
+          
+          # Save to file
+          $bitmap.Save("$filePath", $jpegCodecInfo, $encoderParams)
+          
+          # Clean up resources
+          $graphics.Dispose()
+          $bitmap.Dispose()
           '''
         ]);
 
